@@ -1,0 +1,20 @@
+{
+    "name": "playdate-ani-exporter",
+    "displayName": "Playdate .ani Exporter",
+    "description": "Export .ani file for Playdate",
+    "version": "0.0.1",
+    "author": {
+        "name": "fum1h1ro",
+        "email": "fumihiro@gmail.com",
+        "url": "https://fum1h1ro.github.io/"
+    },
+    "contributors": [ ],
+    "publisher": "fum1h1ro",
+    "license": "MIT",
+    "categories": [ "Scripts" ],
+    "contributes": {
+        "scripts": [
+            { "path": "./main.lua" }
+        ]
+    }
+}

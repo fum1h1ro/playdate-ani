@@ -1,0 +1,21 @@
+require 'json'
+
+def fetch_version
+  obj = JSON.parse(File.read('src/package.json'))
+  obj['version']
+end
+
+
+
+
+task :default do
+
+end
+
+desc 'pack aseprite extension'
+task :pack do
+  v = fetch_version
+  cd 'src' do
+    sh %Q{zip -r ../playdate-ani-exporter-#{v}.aseprite-extension lib main.lua package.json -x "*.DS_Store" "*__MACOSX*"}
+  end
+end

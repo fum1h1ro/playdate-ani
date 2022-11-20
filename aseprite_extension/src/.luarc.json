@@ -1,0 +1,23 @@
+{
+    "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+    "Lua.runtime.version": "Lua 5.3",
+    "Lua.workspace.checkThirdParty": false,
+    "Lua.workspace.library": [
+        "${3rd}/OpenResty/library"
+    ],
+    "diagnostics": {
+      "globals": [
+        "CS",
+        "options",
+        "app",
+        "Image",
+        "Dialog"
+      ]
+    },
+    "diagnostics.neededFileStatus": {
+      "lowercase-global": "None"
+    },
+    "diagnostics.severity": {
+      "lowercase-global": "Hint"
+    }
+}
