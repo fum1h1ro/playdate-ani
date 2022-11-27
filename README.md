@@ -1,0 +1,1 @@
+# Aseprite Player for Playdate
