@@ -13,6 +13,12 @@ function OutputFile(filename, log)
     end
 end
 
+if app.params['output'] ~= nil and app.activeSprite ~= nil then
+    print("Batch export: "..app.params["output"])
+    LoadLib("lib/exporter.lua")
+    OutputFile(app.params['output'])
+    return
+end
 
 local Plugin
 
