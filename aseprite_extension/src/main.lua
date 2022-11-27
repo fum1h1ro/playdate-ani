@@ -26,6 +26,8 @@ function Execute()
     local dialog = Dialog({
         title = "Export .ani File",
     })
+    local path = app.fs.filePath(app.activeSprite.filename)
+    local fname = app.fs.fileTitle(app.activeSprite.filename)
 
     dialog
         :file({
@@ -34,8 +36,7 @@ function Execute()
             title = "Export File",
             open = false,
             save = true,
-            --filename = app.fs.fileTitle(app.activeSprite.filename),
-            filename = "",
+            filename = app.fs.joinPath(path, fname..".ani"),
             filetypes = { "ani" },
             onchange = function()
                 if string.len(dialog.data.savedialog) > 0 then
