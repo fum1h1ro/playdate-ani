@@ -1,3 +1,8 @@
 __pref.lua
 .session.vim
 *.aseprite-extension
+pdex.bin
+*.pdx
+*.dylib
+build_dir
+
