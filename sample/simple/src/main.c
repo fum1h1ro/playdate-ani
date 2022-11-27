@@ -24,27 +24,26 @@ void collisionCallback(const struct pdani_file *s, const char *name, int x, int 
 int UpdateCallback(void *ptr)
 {
     api->graphics->clear(kColorWhite);
-    pdani_player_update(&player, markCallback, NULL);
-    pdani_player_check_collision(&player, 64, 64, collisionCallback, NULL);
-
-
-    pdani_player_draw(&player, NULL, 64, 64);
-    api->graphics->markUpdatedRows(0, 240-1);
-
 
     PDButtons c, p, r;
     api->system->getButtonState(&c, &p, &r);
 
+    enum pdani_flip flip = pdani_player_get_flip(&player);
     if (p & kButtonA)
     {
-        //flip ^= kANIFlipHorizontal;
+        flip ^= PDANI_FLIP_HORIZONTALLY;
     }
     if (p & kButtonB)
     {
-        //flip ^= kANIFlipVertical;
+        flip ^= PDANI_FLIP_VERTICALLY;
     }
+    pdani_player_set_flip(&player, flip);
 
-    pdani_player_end_frame(&player, 20);
+    pdani_player_update(&player, 1000/50, markCallback, NULL);
+    pdani_player_check_collision(&player, 64, 64, collisionCallback, NULL);
+    pdani_player_draw(&player, NULL, 64, 64);
+
+    api->graphics->markUpdatedRows(0, 240-1);
 
     return 1;
 }
@@ -57,6 +56,8 @@ int eventHandler(PlaydateAPI *playdate, PDSystemEvent event, __attribute__ ((unu
 
         common_initialize(playdate);
 
+        //char *buf = common_loadfile("ani/bird_anim_01.ani");
+        //LCDBitmap *bmp = common_loadbitmap("ani/bird_anim_01.png");
         char *buf = common_loadfile("ani/sprite.ani");
         LCDBitmap *bmp = common_loadbitmap("ani/sprite.png");
 

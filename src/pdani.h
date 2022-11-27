@@ -182,9 +182,8 @@ void pdani_player_seek_frame(struct pdani_player *player, int frame_number);
 static inline enum pdani_flip pdani_player_get_flip(const struct pdani_player *player) { return player->flip; }
 static inline void pdani_player_set_flip(struct pdani_player *player, enum pdani_flip flip) { player->flip = flip; }
 void pdani_player_check_collision(const struct pdani_player *player, int x, int y, pdani_collider_callback callback, void *ptr);
-void pdani_player_update(const struct pdani_player *player, pdani_frame_layer_callback callback, void *ptr);
+void pdani_player_update(struct pdani_player *player, int ms, pdani_frame_layer_callback callback, void *ptr);
 void pdani_player_draw(const struct pdani_player *player, LCDBitmap *target, int x, int y);
-void pdani_player_end_frame(struct pdani_player *player, int ms);
 
 // sprite
 void pdani_sprite_initialize(struct pdani_sprite *sprite, void *data, LCDBitmap *bitmap);
