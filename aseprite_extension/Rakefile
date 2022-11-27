@@ -1,5 +1,9 @@
 require 'json'
 
+EXTENSION_NAME = 'playdate-ani-exporter'
+
+
+
 def fetch_version
   obj = JSON.parse(File.read('src/package.json'))
   obj['version']
@@ -16,6 +20,15 @@ desc 'pack aseprite extension'
 task :pack do
   v = fetch_version
   cd 'src' do
-    sh %Q{zip -r ../playdate-ani-exporter-#{v}.aseprite-extension lib main.lua package.json -x "*.DS_Store" "*__MACOSX*"}
+    source = FileList['*.lua'].exclude('__*.lua').include('lib').include('package.json')
+    p source
+    sh %(zip -r ../playdate-ani-exporter-#{v}.aseprite-extension #{source} -x "*.DS_Store" "*__MACOSX*")
   end
+end
+
+desc 'install as symlink(for development)'
+task :install do
+  extdir = File.expand_path("~/Library/Application Support/Aseprite/extensions/#{EXTENSION_NAME}")
+  FileUtils.rm_rf(extdir) if Dir.exist?(extdir)
+  File.symlink(File.expand_path('src'), extdir)
 end
