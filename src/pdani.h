@@ -146,6 +146,7 @@ struct pdani_sprite {
     struct pdani_player player;
     LCDSprite *sprite;
     LCDSprite **colliders;
+    int origin_x, origin_y;
 };
 
 typedef void (*pdani_frame_layer_callback)(const struct pdani_file *file, int framenum, const char *name, void *ptr);
@@ -156,7 +157,7 @@ extern "C"
 {
 #endif
 
-extern void pdani_static_initialize(PlaydateAPI *api);
+void pdani_initialize(PlaydateAPI *api);
 
 // file
 void pdani_file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitmap);

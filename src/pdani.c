@@ -10,6 +10,7 @@
 #endif
 
 static PlaydateAPI *s_api = NULL;
+static int s_frame_ms = 1000 / 20;
 static const char *s_chunk_names[(int)PDANI_CHUNK_TYPE_MAX] = {
     "INFO",
     "TAGS",
@@ -20,6 +21,7 @@ static const char *s_chunk_names[(int)PDANI_CHUNK_TYPE_MAX] = {
     "IMAG",
     "STRG",
 };
+static const LCDRect screen_rect = { .left = 0, .right = LCD_COLUMNS, .top = 0, .bottom = LCD_ROWS };
 
 static inline const void* chunkGetMisc(const struct pdani_chunk *chunk)
 {
@@ -58,20 +60,59 @@ static enum pdani_chunk_type detectChunkType(const struct pdani_chunk *chunk)
     return PDANI_CHUNK_TYPE_MAX;
 }
 
-void pdani_static_initialize(PlaydateAPI *api)
+static inline int clamp_int(int v, int min, int max)
+{
+    return (v < min)? min : (v > max)? max : v;
+}
+
+static inline float clamp_float(float v, float min, float max)
+{
+    return (v < min)? min : (v > max)? max : v;
+}
+
+#define CLAMP(v, min, max) \
+    _Generic((v), \
+        int: clamp_int, \
+        float: clamp_float \
+    )((v), (min), (max))
+
+// @return 完全不可視ならfalse
+static bool clip_rect(LCDRect* rc, const LCDRect* cliprc)
+{
+    rc->left = CLAMP(rc->left, cliprc->left, cliprc->right);
+    rc->right = CLAMP(rc->right, cliprc->left, cliprc->right);
+    rc->top = CLAMP(rc->top, cliprc->top, cliprc->bottom);
+    rc->bottom = CLAMP(rc->bottom, cliprc->top, cliprc->bottom);
+    return rc->right - rc->left > 0 && rc->bottom - rc->top > 0;
+}
+
+void pdani_initialize(PlaydateAPI *api)
 {
     ASSERT(s_api == NULL);
     s_api = api;
 }
 
+void pdani_set_fps(int fps)
+{
+    ASSERT(s_api == NULL);
+    s_frame_ms = 1000 / fps;
+}
+
 void pdani_file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitmap)
 {
-    ASSERT(s_api != NULL && "need to call pdani_static_initialize()");
+    ASSERT(s_api != NULL && "need to call pdani_initialize()");
 
     memset(file, 0, sizeof(struct pdani_file));
     file->header = data;
     file->bitmap = bitmap;
-    s_api->graphics->getBitmapData(bitmap, &file->bitmap_info.width, &file->bitmap_info.height, &file->bitmap_info.rowbytes, &file->bitmap_info.mask, &file->bitmap_info.texel);
+    s_api->graphics->getBitmapData(
+        bitmap,
+        &file->bitmap_info.width,
+        &file->bitmap_info.height,
+        &file->bitmap_info.rowbytes,
+        &file->bitmap_info.mask,
+        &file->bitmap_info.texel
+    );
     //if (file->bitmap_info.mask != NULL) {
     //    file->bitmap_info.mask = file->bitmap_info.texel + (file->bitmap_info.rowbytes * file->bitmap_info.height);
     //}
@@ -251,56 +292,79 @@ static void drawBitmapWithRect(const struct pdani_file *file, uint8_t *framebuf,
     uint8_t *texel = file->bitmap_info.texel;
     uint8_t *mask = file->bitmap_info.mask;
 
-    int bw = (w + (8-1)) >> 3;
+    // clip
+    if (y < 0) {
+        v += -y;
+        h -= -y;
+        y = 0;
+    }
+    if (y + h > LCD_ROWS) {
+        int m = ((y + h) - LCD_ROWS);
+        h -= m;
+        if (fv) v += m;
+    }
+    if (h <= 0) return;
+
+    const int bw = (w + (8-1)) >> 3;
+    const int vdir = (fv)? -1 : +1;
+    const int bufstep = file->bitmap_info.rowbytes * vdir;
 
     x = (fh)? x - ((bw << 3) - w) : x;
     v = (fv)? v + (h - 1) : v;
-    int vdir = (fv)? -1 : +1;
 
     texel += file->bitmap_info.rowbytes * v + (u >> 3);
     mask += file->bitmap_info.rowbytes * v + (u >> 3);
+    dst += LCD_ROWSIZE * y;
 
     int dst_startbyte = x >> 3;
-    dst += LCD_ROWSIZE * y + dst_startbyte;
+    int dst_endbyte = dst_startbyte + bw;
 
-    int write1size = 8 - (x - dst_startbyte * 8);
-    int write2size = 8 - write1size;
-    uint8_t write1mask = (uint8_t)(((uint16_t)1 << write1size) - 1);
-    uint8_t write2mask = (uint8_t)(((uint16_t)1 << write2size) - 1) << write1size;
+    const int write1size = 8 - (x - dst_startbyte * 8);
+    const int write2size = 8 - write1size;
+    const uint8_t write1mask = (uint8_t)(((uint16_t)1 << write1size) - 1);
+    const uint8_t write2mask = (uint8_t)(((uint16_t)1 << write2size) - 1) << write1size;
 
     int startx = (fh)? bw - 1 : 0;
-    int sinc = (fh)? -1 : 1;
+    const int sinc = (fh)? -1 : 1;
 
+    if (dst_startbyte < 0) {
+        startx += -dst_startbyte;
+        dst_startbyte = 0;
+    }
+    if (dst_endbyte > LCD_COLUMNS >> 3)
+    {
+        dst_endbyte = LCD_COLUMNS >> 3;
+    }
     if (write2size == 0) {
         if (fh) {
             for (int sy = 0; sy < h; ++sy) {
-                for (int sx = startx, dx = 0; dx < bw; sx += sinc, ++dx) {
+                for (int sx = startx, dx = dst_startbyte; dx < dst_endbyte; sx += sinc, ++dx) {
                     const uint8_t t = bitFlip8(*(texel + sx));
                     const uint8_t m = bitFlip8(*(mask + sx));
                     const uint8_t d = *(dst + dx);
                     *(dst + dx) = (d & ~m) | (t & m);
                 }
-                texel += file->bitmap_info.rowbytes * vdir;
-                mask += file->bitmap_info.rowbytes * vdir;
+                texel += bufstep;
+                mask += bufstep;
                 dst += LCD_ROWSIZE;
             }
         } else {
             for (int sy = 0; sy < h; ++sy) {
-                for (int sx = startx, dx = 0; dx < bw; sx += sinc, ++dx) {
+                for (int sx = startx, dx = dst_startbyte; dx < dst_endbyte; sx += sinc, ++dx) {
                     const uint8_t t = *(texel + sx);
                     const uint8_t m = *(mask + sx);
                     const uint8_t d = *(dst + dx);
                     *(dst + dx) = (d & ~m) | (t & m);
                 }
-                texel += file->bitmap_info.rowbytes * vdir;
-                mask += file->bitmap_info.rowbytes * vdir;
+                texel += bufstep;
+                mask += bufstep;
                 dst += LCD_ROWSIZE;
             }
         }
     } else {
         if (fh) {
             for (int sy = 0; sy < h; ++sy) {
-                for (int sx = startx, dx = 0; dx < bw; sx += sinc, ++dx) {
+                for (int sx = startx, dx = dst_startbyte; dx < dst_endbyte; sx += sinc, ++dx) {
                     const uint8_t t = bitFlip8(*(texel + sx));
                     const uint8_t m = bitFlip8(*(mask + sx));
                     const uint8_t t1 = (t >> write2size) & write1mask;
@@ -312,13 +376,13 @@ static void drawBitmapWithRect(const struct pdani_file *file, uint8_t *framebuf,
                     *(dst + dx + 0) = (d1 & ~m1) | (t1 & m1);
                     *(dst + dx + 1) = (d2 & ~m2) | (t2 & m2);
                 }
-                texel += file->bitmap_info.rowbytes * vdir;
-                mask += file->bitmap_info.rowbytes * vdir;
+                texel += bufstep;
+                mask += bufstep;
                 dst += LCD_ROWSIZE;
             }
         } else {
             for (int sy = 0; sy < h; ++sy) {
-                for (int sx = startx, dx = 0; dx < bw; sx += sinc, ++dx) {
+                for (int sx = startx, dx = dst_startbyte; dx < dst_endbyte; sx += sinc, ++dx) {
                     const uint8_t t = *(texel + sx);
                     const uint8_t m = *(mask + sx);
                     const uint8_t t1 = (t >> write2size) & write1mask;
@@ -330,15 +394,13 @@ static void drawBitmapWithRect(const struct pdani_file *file, uint8_t *framebuf,
                     *(dst + dx + 0) = (d1 & ~m1) | (t1 & m1);
                     *(dst + dx + 1) = (d2 & ~m2) | (t2 & m2);
                 }
-                texel += file->bitmap_info.rowbytes * vdir;
-                mask += file->bitmap_info.rowbytes * vdir;
+                texel += bufstep;
+                mask += bufstep;
                 dst += LCD_ROWSIZE;
             }
-
         }
     }
 }
-
 
 typedef struct
 {
@@ -386,6 +448,10 @@ void pdani_file_draw(const struct pdani_file *file, uint8_t *framebuf, int x, in
     SpriteFrameLayerIterator it, end;
     const int sw = pdani_file_get_width(file);
     const int sh = pdani_file_get_height(file);
+
+    LCDRect rc = LCDMakeRect(x, y, sw, sh);
+    if (!clip_rect(&rc, &screen_rect)) return;
+
     const bool fliph = flip & PDANI_FLIP_HORIZONTALLY;
     const bool flipv = flip & PDANI_FLIP_VERTICALLY;
 
@@ -394,13 +460,13 @@ void pdani_file_draw(const struct pdani_file *file, uint8_t *framebuf, int x, in
         const struct pdani_layer_data *layer = it.layer_data;
         const struct pdani_frame_layer *framelayer = it.frame_layer;
 
-        if (layer->type == PDANI_LAYER_TYPE_LAYER && framelayer->cel >= 0) {
-            const struct pdani_cel_data *cel = spriteGetCelData(file, framelayer->cel);
-            const struct pdani_image_data *image = spriteGetImageData(file, cel->image);
-            const int dx = (fliph)? x + sw - cel->x - image->w : x + cel->x;
-            const int dy = (flipv)? y + sh - cel->y - image->h : y + cel->y;
-            drawBitmapWithRect(file, framebuf, dx, dy, image->u, image->v, image->w, image->h, fliph, flipv);
-        }
+        if (layer->type != PDANI_LAYER_TYPE_LAYER || framelayer->cel < 0) continue;
+
+        const struct pdani_cel_data *cel = spriteGetCelData(file, framelayer->cel);
+        const struct pdani_image_data *image = spriteGetImageData(file, cel->image);
+        const int dx = (fliph)? x + sw - cel->x - image->w : x + cel->x;
+        const int dy = (flipv)? y + sh - cel->y - image->h : y + cel->y;
+        drawBitmapWithRect(file, framebuf, dx, dy, image->u, image->v, image->w, image->h, fliph, flipv);
     }
 }
 
@@ -626,17 +692,18 @@ void pdani_player_update(struct pdani_player *player, int ms, pdani_frame_layer_
 {
     ASSERT(player != NULL);
     if (!player->is_playing) return;
-    if (callback == NULL) return;
-
-    //PRINT("%d - %d", player->previous_frame_number, player->frame_number);
-    if (player->previous_frame_number < 0) {
-        spriteCheckFrameTrigger(player->file, player->frame_number, callback, ptr);
-    } else if (player->previous_frame_number != player->frame_number) {
-        int f = player->previous_frame_number;
-        do {
-            f = playerCalculateNextFrame(player, f);
-            spriteCheckFrameTrigger(player->file, f, callback, ptr);
-        } while (f != player->frame_number);
+    if (callback != NULL)
+    {
+        //PRINT("%d - %d", player->previous_frame_number, player->frame_number);
+        if (player->previous_frame_number < 0) {
+            spriteCheckFrameTrigger(player->file, player->frame_number, callback, ptr);
+        } else if (player->previous_frame_number != player->frame_number) {
+            int f = player->previous_frame_number;
+            do {
+                f = playerCalculateNextFrame(player, f);
+                spriteCheckFrameTrigger(player->file, f, callback, ptr);
+            } while (f != player->frame_number);
+        }
     }
 
     const bool is_first = player->previous_frame_number < 0;
@@ -665,7 +732,8 @@ void pdani_player_draw(const struct pdani_player *player, LCDBitmap *target, int
     } else {
         framebuf = s_api->graphics->getFrame();
     }
-    pdani_file_draw(player->file, framebuf, x, y, player->frame_number, player->flip);
+    const int frame =  (player->is_playing)? player->frame_number : 1;
+    pdani_file_draw(player->file, framebuf, x, y, frame, player->flip);
 }
 
 
@@ -674,11 +742,25 @@ void pdani_player_draw(const struct pdani_player *player, LCDBitmap *target, int
 static void sprite_update_function(LCDSprite *sprite)
 {
     struct pdani_sprite *anisprite = s_api->sprite->getUserdata(sprite);
-    //pdani_player_update(&anisprite->player, 
+    LCDSprite *s = anisprite->sprite;
+
+    pdani_player_update(&anisprite->player, s_frame_ms, NULL, NULL);
+    //s_api->system->logToConsole("%d", anisprite->player.frame_number);
+    float px, py;
+    s_api->sprite->getPosition(s, &px, &py);
+    float x = px - anisprite->origin_x;
+    float y = py - anisprite->origin_y;
+    float w = pdani_file_get_width(&anisprite->file);
+    float h = pdani_file_get_height(&anisprite->file);
+    s_api->sprite->setBounds(s, PDRectMake(x, y, w, h));
 }
 static void sprite_draw_function(LCDSprite *sprite, PDRect bounds, PDRect drawrect)
 {
     struct pdani_sprite *anisprite = s_api->sprite->getUserdata(sprite);
+    LCDSprite *s = anisprite->sprite;
+    float x, y;
+    s_api->sprite->getPosition(s, &x, &y);
+    pdani_player_draw(&anisprite->player, NULL, (int)x - anisprite->origin_x, (int)y - anisprite->origin_y);
 }
 
 void pdani_sprite_initialize(struct pdani_sprite *anisprite, void *data, LCDBitmap *bitmap)
@@ -686,11 +768,14 @@ void pdani_sprite_initialize(struct pdani_sprite *anisprite, void *data, LCDBitm
     pdani_file_initialize(&anisprite->file, data, bitmap);
     pdani_player_initialize(&anisprite->player, &anisprite->file);
     anisprite->sprite = s_api->sprite->newSprite();
+    int w = pdani_file_get_width(&anisprite->file);
+    int h = pdani_file_get_height(&anisprite->file);
+    anisprite->origin_x = w >> 1;
+    anisprite->origin_y = h >> 1;
 
     s_api->sprite->setUserdata(anisprite->sprite, anisprite);
     s_api->sprite->setUpdateFunction(anisprite->sprite, sprite_update_function);
     s_api->sprite->setDrawFunction(anisprite->sprite, sprite_draw_function);
-
 }
 
 void pdani_sprite_finalize(struct pdani_sprite *anisprite)

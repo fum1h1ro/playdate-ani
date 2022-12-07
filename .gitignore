@@ -5,4 +5,5 @@ pdex.bin
 *.pdx
 *.dylib
 build_dir
+**/Source/ani
 

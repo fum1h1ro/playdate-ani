@@ -16,9 +16,13 @@ end
 
 def load_pdxinfo()
   pdxinfo = {}
-  File.read(PDXINFO_FILE).each_line do |x|
-    pair = x.chomp.split(/=/, 2)
-    pdxinfo[pair[0]] = pair[1]
+  begin
+    File.read(PDXINFO_FILE).each_line do |x|
+      pair = x.chomp.split(/=/, 2)
+      pdxinfo[pair[0]] = pair[1]
+    end
+  rescue Errno::ENOENT
+    pdxinfo['name'] = 'hoge'
   end
   pdxinfo
 end
@@ -154,6 +158,23 @@ task :test => "build:simulator:debug" do
       end
       print("================================================================================\n")
       raise
+    end
+  end
+end
+
+namespace :generate do
+  desc 'generate .ani resources for samples'
+  task :resource do
+    f = FileList['*'].exclude('common').exclude('resources').exclude do |e|
+      !File.directory?(e)
+    end
+    aseprites = FileList['resources/*.aseprite']
+    p aseprites
+    f.pathmap('%n/Source/ani').each do |dir|
+      aseprites.each do |ase|
+        ani = ase.pathmap("#{dir}/%n.ani")
+        sh "../aseprite_extension/batch_export.sh #{ase} #{ani}"
+      end
     end
   end
 end
