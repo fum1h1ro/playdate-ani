@@ -17,7 +17,7 @@ After executing the above, you will get a file `playdate-ani-exporter-{version-n
 
 1. Open the `.aseprite` file.
 
-! [](docimages/00.png)
+![](docimages/00.png)
 
 2. Select `Export for Playdate` as it has been added to the export menu.
 
@@ -29,7 +29,7 @@ After executing the above, you will get a file `playdate-ani-exporter-{version-n
 
 4. Pass the saved `{save name}.ani` and `{save name}.png` to the project.
 
-! [](docimages/03.png)
+![](docimages/03.png)
 
 
 ## samples
