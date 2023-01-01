@@ -9,6 +9,10 @@
 #   define PRINT(...)
 #endif
 
+#define BIT_SET(v, f) (v) |= (f)
+#define BIT_CHECK(v, f) ((v) & (f))
+#define BIT_CLEAR(v, f) (v) &= ~(f)
+
 static PlaydateAPI *s_api = NULL;
 static int s_frame_ms = 1000 / 20;
 static const char *s_chunk_names[(int)PDANI_CHUNK_TYPE_MAX] = {
@@ -25,12 +29,12 @@ static const LCDRect screen_rect = { .left = 0, .right = LCD_COLUMNS, .top = 0, 
 
 static inline const void* chunkGetMisc(const struct pdani_chunk *chunk)
 {
-  return &chunk->misc[0];
+    return &chunk->misc[0];
 }
 
 static inline const void* chunkGetData(const struct pdani_chunk *chunk)
 {
-  return chunk + 1;
+    return chunk + 1;
 }
 
 static inline const void* seek(const struct pdani_file *file, int offset)
@@ -45,8 +49,8 @@ static inline const void* seekChunkData(const struct pdani_chunk *chunk, int off
 
 static inline const char* getString(const struct pdani_file *file, int index)
 {
-  const char *stream = (const char*)chunkGetData(file->chunks[PDANI_CHUNK_TYPE_STRING]);
-  return &stream[index];
+    const char *stream = (const char*)chunkGetData(file->chunks[PDANI_CHUNK_TYPE_STRING]);
+    return &stream[index];
 }
 
 static enum pdani_chunk_type detectChunkType(const struct pdani_chunk *chunk)
@@ -86,7 +90,40 @@ static bool clip_rect(LCDRect* rc, const LCDRect* cliprc)
     return rc->right - rc->left > 0 && rc->bottom - rc->top > 0;
 }
 
-void pdani_initialize(PlaydateAPI *api)
+static void* mem_alloc(const size_t sz)
+{
+    return s_api->system->realloc(NULL, sz);
+}
+
+static void mem_free(void *buf)
+{
+    s_api->system->realloc(buf, 0);
+}
+
+static void* loadfile(const char *path)
+{
+    SDFile *file = s_api->file->open(path, kFileRead);
+    s_api->file->seek(file, 0, SEEK_END);
+    int len = s_api->file->tell(file);
+    s_api->file->seek(file, 0, SEEK_SET);
+    void *buf = mem_alloc(len);
+    s_api->file->read(file, buf, len);
+    s_api->file->close(file);
+    return buf;
+}
+
+static LCDBitmap* loadbitmap(const char *path)
+{
+    const char *err = NULL;
+    LCDBitmap *bmp = s_api->graphics->loadBitmap(path, &err);
+    if (err != NULL)
+    {
+        s_api->system->error(err);
+    }
+    return bmp;
+}
+
+void pdani_global_initialize(PlaydateAPI *api)
 {
     ASSERT(s_api == NULL);
     s_api = api;
@@ -94,13 +131,13 @@ void pdani_initialize(PlaydateAPI *api)
 
 void pdani_set_fps(int fps)
 {
-    ASSERT(s_api == NULL);
+    ASSERT(s_api != NULL);
     s_frame_ms = 1000 / fps;
 }
 
-void pdani_file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitmap)
+static void file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitmap)
 {
-    ASSERT(s_api != NULL && "need to call pdani_initialize()");
+    ASSERT(s_api != NULL && "need to call pdani_global_initialize)");
 
     memset(file, 0, sizeof(struct pdani_file));
     file->header = data;
@@ -113,9 +150,6 @@ void pdani_file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitma
         &file->bitmap_info.mask,
         &file->bitmap_info.texel
     );
-    //if (file->bitmap_info.mask != NULL) {
-    //    file->bitmap_info.mask = file->bitmap_info.texel + (file->bitmap_info.rowbytes * file->bitmap_info.height);
-    //}
 
     const struct pdani_chunk *chunk = (const struct pdani_chunk*)(file->header + 1);
     do {
@@ -127,9 +161,27 @@ void pdani_file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitma
     } while (1);
 }
 
+void pdani_file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitmap)
+{
+    file_initialize(file, data, bitmap);
+}
+
+void pdani_file_initialize_with_filename(struct pdani_file *file, const char *anifilename, const char *bitmapfilename)
+{
+    void *ani = loadfile(anifilename);
+    LCDBitmap *bmp = loadbitmap(bitmapfilename);
+    file_initialize(file, ani, bmp);
+    BIT_SET(file->flags, PDANI_FILE_FLAG_SELF_ALLOCATE);
+}
+
 void pdani_file_finalize(struct pdani_file *file)
 {
-
+    if (BIT_CHECK(file->flags, PDANI_FILE_FLAG_SELF_ALLOCATE))
+    {
+        s_api->graphics->freeBitmap(file->bitmap);
+        mem_free(file->bitmap);
+        mem_free(file->header);
+    }
 }
 
 int pdani_file_get_width(const struct pdani_file *file)
@@ -402,6 +454,7 @@ static void drawBitmapWithRect(const struct pdani_file *file, uint8_t *framebuf,
     }
 }
 
+//! @internal
 typedef struct
 {
     int layer_index;
@@ -438,12 +491,18 @@ static inline bool spriteFrameLayerCompare(SpriteFrameLayerIterator *it0, Sprite
     return it0->layer_index == it1->layer_index;
 }
 
-void pdani_file_draw(const struct pdani_file *file, uint8_t *framebuf, int x, int y, int framenumber, enum pdani_flip flip)
+void pdani_file_draw(const struct pdani_file *file, LCDBitmap *target, int x, int y, int framenumber, bool fliph, bool flipv)
 {
     ASSERT(s_api != NULL);
     ASSERT(file != NULL);
-    ASSERT(framebuf != NULL);
     ASSERT(1 <= framenumber && framenumber <= pdani_file_get_frame_count(file));
+
+    uint8_t *framebuf = NULL;
+    if (target != NULL) {
+        s_api->graphics->getBitmapData(target, NULL, NULL, NULL, NULL, &framebuf);
+    } else {
+        framebuf = s_api->graphics->getFrame();
+    }
 
     SpriteFrameLayerIterator it, end;
     const int sw = pdani_file_get_width(file);
@@ -451,9 +510,6 @@ void pdani_file_draw(const struct pdani_file *file, uint8_t *framebuf, int x, in
 
     LCDRect rc = LCDMakeRect(x, y, sw, sh);
     if (!clip_rect(&rc, &screen_rect)) return;
-
-    const bool fliph = flip & PDANI_FLIP_HORIZONTALLY;
-    const bool flipv = flip & PDANI_FLIP_VERTICALLY;
 
     spriteFrameLayerEnd(&end, file, framenumber);
     for (spriteFrameLayerBegin(&it, file, framenumber); !spriteFrameLayerCompare(&it, &end); spriteFrameLayerNext(&it)) {
@@ -490,7 +546,7 @@ static void spriteCheckFrameTrigger(const struct pdani_file *file, int framenumb
     }
 }
 
-void pdani_file_check_collision(const struct pdani_file *file, int x, int y, int framenumber, enum pdani_flip flip, pdani_collider_callback callback, void *ptr)
+void pdani_file_check_collision(const struct pdani_file *file, int x, int y, int framenumber, bool fliph, bool flipv, pdani_collider_callback callback, void *ptr)
 {
     ASSERT(s_api != NULL);
     ASSERT(file != NULL);
@@ -501,8 +557,6 @@ void pdani_file_check_collision(const struct pdani_file *file, int x, int y, int
     SpriteFrameLayerIterator it, end;
     const int sw = pdani_file_get_width(file);
     const int sh = pdani_file_get_height(file);
-    const bool fliph = flip & PDANI_FLIP_HORIZONTALLY;
-    const bool flipv = flip & PDANI_FLIP_VERTICALLY;
 
     spriteFrameLayerEnd(&end, file, framenumber);
     for (spriteFrameLayerBegin(&it, file, framenumber); !spriteFrameLayerCompare(&it, &end); spriteFrameLayerNext(&it)) {
@@ -600,18 +654,36 @@ void pdani_file_dump(const struct pdani_file *file)
 
 
 
-void pdani_player_initialize(struct pdani_player *player, struct pdani_file *file)
+static void player_initialize(struct pdani_player *player, struct pdani_file *file)
 {
     ASSERT(s_api != NULL);
     memset(player, 0, sizeof(struct pdani_player));
+
     player->file = file;
     player->start_frame = 1;
     player->end_frame = pdani_file_get_frame_count(player->file);
     player->is_playing = false;
+    BIT_SET(player->flags, PDANI_PLAYER_FLAG_FRAME_SKIPPABLE);
+}
+
+void pdani_player_initialize(struct pdani_player *player, struct pdani_file *file)
+{
+    player_initialize(player, file);
+}
+
+void pdani_player_initialize_with_filename(struct pdani_player *player, const char *anifilename, const char *bmpfilename)
+{
+    struct pdani_file *file = mem_alloc(sizeof(struct pdani_file));
+    pdani_file_initialize_with_filename(file, anifilename, bmpfilename);
+    player_initialize(player, file);
+    BIT_SET(player->flags, PDANI_PLAYER_FLAG_SELF_ALLOCATE);
 }
 
 void pdani_player_finalize(struct pdani_player *player)
 {
+    if (BIT_CHECK(player->flags, PDANI_PLAYER_FLAG_SELF_ALLOCATE)) {
+        pdani_file_finalize(player->file);
+    }
 }
 
 void pdani_player_play(struct pdani_player *player, const char *tagname)
@@ -654,6 +726,31 @@ void pdani_player_seek_frame(struct pdani_player *player, int frame_number)
     player->previous_frame_number = -1;
 }
 
+inline bool pdani_player_get_flip_horizontally(const struct pdani_player *player)
+{
+    return BIT_CHECK(player->flags, PDANI_PLAYER_FLAG_FLIP_HORIZONTALLY);
+}
+
+inline bool pdani_player_get_flip_vertically(const struct pdani_player *player)
+{
+    return BIT_CHECK(player->flags, PDANI_PLAYER_FLAG_FLIP_VERTICALLY);
+}
+
+void pdani_player_set_flip(struct pdani_player *player, bool fliph, bool flipv)
+{
+    if (fliph) {
+        BIT_SET(player->flags, PDANI_PLAYER_FLAG_FLIP_HORIZONTALLY);
+    } else {
+        BIT_CLEAR(player->flags, PDANI_PLAYER_FLAG_FLIP_HORIZONTALLY);
+    }
+
+    if (flipv) {
+        BIT_SET(player->flags, PDANI_PLAYER_FLAG_FLIP_VERTICALLY);
+    } else {
+        BIT_CLEAR(player->flags, PDANI_PLAYER_FLAG_FLIP_VERTICALLY);
+    }
+}
+
 /// @internal
 static inline int playerCalculateNextFrame(const struct pdani_player *player, int current_frame_number)
 {
@@ -674,16 +771,19 @@ void pdani_player_check_collision(const struct pdani_player *player, int x, int 
     if (!player->is_playing) return;
     if (callback == NULL) return;
 
+    const bool fliph = pdani_player_get_flip_horizontally(player);
+    const bool flipv = pdani_player_get_flip_vertically(player);
+
     if (player->previous_frame_number < 0) {
-        pdani_file_check_collision(player->file, x, y, player->frame_number, player->flip, callback, ptr);
+        pdani_file_check_collision(player->file, x, y, player->frame_number, fliph, flipv, callback, ptr);
     } else if (player->previous_frame_number != player->frame_number) {
         int f = player->previous_frame_number;
         do {
             f = playerCalculateNextFrame(player, f);
-            pdani_file_check_collision(player->file, x, y, f, player->flip, callback, ptr);
+            pdani_file_check_collision(player->file, x, y, f, fliph, flipv, callback, ptr);
         } while (f != player->frame_number);
     } else {
-        pdani_file_check_collision(player->file, x, y, player->frame_number, player->flip, callback, ptr);
+        pdani_file_check_collision(player->file, x, y, player->frame_number, fliph, flipv, callback, ptr);
     }
 }
 
@@ -713,6 +813,8 @@ void pdani_player_update(struct pdani_player *player, int ms, pdani_frame_layer_
     player->frame_elapsed += ms;
     player->total_elapsed += ms;
 
+    bool is_frame_skippable = BIT_CHECK(player->flags, PDANI_PLAYER_FLAG_FRAME_SKIPPABLE);
+
     while (player->current_frame->duration <= player->frame_elapsed) {
         player->frame_elapsed -= player->current_frame->duration;
         player->frame_number = playerCalculateNextFrame(player, player->frame_number);
@@ -720,20 +822,21 @@ void pdani_player_update(struct pdani_player *player, int ms, pdani_frame_layer_
             player->is_playing = false;
         }
         player->current_frame = spriteGetFrameData(player->file, player->frame_number);
+
+        if (!is_frame_skippable) {
+            player->frame_elapsed = 0;
+            break;
+        }
     }
 }
 
 void pdani_player_draw(const struct pdani_player *player, LCDBitmap *target, int x, int y)
 {
     ASSERT(player != NULL);
-    uint8_t *framebuf = NULL;
-    if (target != NULL) {
-        s_api->graphics->getBitmapData(target, NULL, NULL, NULL, NULL, &framebuf);
-    } else {
-        framebuf = s_api->graphics->getFrame();
-    }
     const int frame =  (player->is_playing)? player->frame_number : 1;
-    pdani_file_draw(player->file, framebuf, x, y, frame, player->flip);
+    const bool fliph = pdani_player_get_flip_horizontally(player);
+    const bool flipv = pdani_player_get_flip_vertically(player);
+    pdani_file_draw(player->file, target, x, y, frame, fliph, flipv);
 }
 
 
@@ -754,6 +857,7 @@ static void sprite_update_function(LCDSprite *sprite)
     float h = pdani_file_get_height(&anisprite->file);
     s_api->sprite->setBounds(s, PDRectMake(x, y, w, h));
 }
+
 static void sprite_draw_function(LCDSprite *sprite, PDRect bounds, PDRect drawrect)
 {
     struct pdani_sprite *anisprite = s_api->sprite->getUserdata(sprite);
@@ -765,6 +869,9 @@ static void sprite_draw_function(LCDSprite *sprite, PDRect bounds, PDRect drawre
 
 void pdani_sprite_initialize(struct pdani_sprite *anisprite, void *data, LCDBitmap *bitmap)
 {
+    ASSERT(s_api != NULL);
+    memset(anisprite, 0, sizeof(struct pdani_sprite));
+
     pdani_file_initialize(&anisprite->file, data, bitmap);
     pdani_player_initialize(&anisprite->player, &anisprite->file);
     anisprite->sprite = s_api->sprite->newSprite();

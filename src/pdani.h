@@ -4,12 +4,6 @@
 #include "pd_api.h"
 #include <stdbool.h>
 
-enum pdani_flip {
-    PDANI_FLIP_NONE = 0,
-    PDANI_FLIP_HORIZONTALLY = (1<<0),
-    PDANI_FLIP_VERTICALLY = (1<<1),
-};
-
 enum pdani_chunk_type {
     PDANI_CHUNK_TYPE_INFO,
     PDANI_CHUNK_TYPE_TAG,
@@ -22,17 +16,31 @@ enum pdani_chunk_type {
     PDANI_CHUNK_TYPE_MAX,
 };
 
-enum pdani_loop_type {
+enum pdani_player_loop_type {
     PDANI_LOOP_TYPE_LOOP,
     PDANI_LOOP_TYPE_ONESHOT,
 };
 
-enum pdani_layer_type
-{
+enum pdani_layer_type {
     PDANI_LAYER_TYPE_LAYER = 'L',
     PDANI_LAYER_TYPE_GROUP = 'G',
     PDANI_LAYER_TYPE_COLLIDER = 'C',
 };
+
+enum pdani_file_flags {
+    PDANI_FILE_FLAG_SELF_ALLOCATE = (1<<0),
+    PDANI_FILE_FLAG_FORCE_U32 = 0xffffffff, //< @internal
+};
+
+enum pdani_player_flags {
+    PDANI_PLAYER_FLAG_SELF_ALLOCATE = (1<<0),
+    PDANI_PLAYER_FLAG_FRAME_SKIPPABLE = (1<<1), //< フレームをスキップできるかどうか
+    PDANI_PLAYER_FLAG_FLIP_HORIZONTALLY = (1<<2), //< 水平方向の反転
+    PDANI_PLAYER_FLAG_FLIP_VERTICALLY = (1<<3), //< 垂直方向の反転
+    PDANI_PLAYER_FLAG_FORCE_U32 = 0xffffffff, //< @internal
+};
+
+
 
 struct pdani_chunk {
     int8_t id[4];
@@ -112,13 +120,14 @@ struct pdani_collider_data {
 };
 
 struct pdani_file {
-    const struct {
+    enum pdani_file_flags flags;
+    struct {
         int8_t id[4];
         uint32_t version;
         int32_t padding[2];
     } *header;
     const struct pdani_chunk *chunks[PDANI_CHUNK_TYPE_MAX];
-    const LCDBitmap *bitmap;
+    LCDBitmap *bitmap;
     struct {
         int width, height;
         int rowbytes;
@@ -128,7 +137,7 @@ struct pdani_file {
 };
 
 struct pdani_player {
-    const struct pdani_file *file;
+    struct pdani_file *file; //< @internal
     uint16_t start_frame;
     uint16_t end_frame;
     const struct pdani_frame_data *current_frame;
@@ -137,8 +146,8 @@ struct pdani_player {
     int16_t frame_elapsed;
     int32_t total_elapsed;
     bool is_playing;
-    enum pdani_loop_type loop_type;
-    enum pdani_flip flip;
+    enum pdani_player_flags flags;
+    enum pdani_player_loop_type loop_type;
 };
 
 struct pdani_sprite {
@@ -157,10 +166,12 @@ extern "C"
 {
 #endif
 
-void pdani_initialize(PlaydateAPI *api);
+void pdani_global_initialize(PlaydateAPI *api);
 
-// file
+// file2
+/// @fn 初期化
 void pdani_file_initialize(struct pdani_file *file, void *data, LCDBitmap *bitmap);
+void pdani_file_initialize_with_filename(struct pdani_file *file, const char *anifilename, const char *bmpfilename);
 void pdani_file_finalize(struct pdani_file *file);
 int pdani_file_get_width(const struct pdani_file *file);
 int pdani_file_get_height(const struct pdani_file *file);
@@ -169,19 +180,22 @@ const char* pdani_file_get_tag_name(const struct pdani_file *file, int index);
 int pdani_file_get_layer_count(const struct pdani_file *file);
 const char* pdani_file_get_layer_name(const struct pdani_file *file, int index);
 int pdani_file_get_frame_count(const struct pdani_file *file);
-void pdani_file_draw(const struct pdani_file *file, uint8_t *framebuf, int x, int y, int frame, enum pdani_flip flip);
-void pdani_file_check_collision(const struct pdani_file *file, int x, int y, int framenum, enum pdani_flip flip, pdani_collider_callback callback, void *ptr);
+void pdani_file_draw(const struct pdani_file *file, LCDBitmap *target, int x, int y, int frame, bool fliph, bool flipv);
+void pdani_file_check_collision(const struct pdani_file *file, int x, int y, int framenum, bool fliph, bool flipv, pdani_collider_callback callback, void *ptr);
 void pdani_file_dump(const struct pdani_file *file);
 
 // player
 void pdani_player_initialize(struct pdani_player *player, struct pdani_file *file);
+void pdani_player_initialize_with_filename(struct pdani_player *player, const char *anifilename, const char *bmpfilename);
 void pdani_player_finalize(struct pdani_player *player);
+static inline const struct pdani_file* pdani_player_get_file(const struct pdani_player *player) { return player->file; }
 void pdani_player_play(struct pdani_player *player, const char *tagname);
 void pdani_player_stop(struct pdani_player *player);
 void pdani_player_resume(struct pdani_player *player);
 void pdani_player_seek_frame(struct pdani_player *player, int frame_number);
-static inline enum pdani_flip pdani_player_get_flip(const struct pdani_player *player) { return player->flip; }
-static inline void pdani_player_set_flip(struct pdani_player *player, enum pdani_flip flip) { player->flip = flip; }
+bool pdani_player_get_flip_horizontally(const struct pdani_player *player);
+bool pdani_player_get_flip_vertically(const struct pdani_player *player);
+void pdani_player_set_flip(struct pdani_player *player, bool fliph, bool flipv);
 void pdani_player_check_collision(const struct pdani_player *player, int x, int y, pdani_collider_callback callback, void *ptr);
 void pdani_player_update(struct pdani_player *player, int ms, pdani_frame_layer_callback callback, void *ptr);
 void pdani_player_draw(const struct pdani_player *player, LCDBitmap *target, int x, int y);
