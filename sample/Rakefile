@@ -6,11 +6,22 @@ def sample_directories
   end
 end
 
-task :setup do
+def build_files
+  ['CMakeLists.txt', 'Rakefile']
+end
+
+sample_directories.each do |dir|
+  build_files.each do |f|
+    CLOBBER.include("#{dir}/#{f}")
+  end
+end
+
+desc 'simple setup for each samples'
+task setup: ['generate:resource'] do
   f = sample_directories
   f.each do |dir|
     cd dir do
-      ['CMakeLists.txt', 'Rakefile'].each do |src|
+      build_files.each do |src|
         FileUtils.ln_s("../common/#{src}", src, **{ verbose: true })
       end
     end
