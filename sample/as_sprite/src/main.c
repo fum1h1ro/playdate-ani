@@ -63,7 +63,7 @@ int eventHandler(PlaydateAPI *playdate, PDSystemEvent event, __attribute__ ((unu
         api = playdate;
 
         common_initialize(playdate);
-        pdani_initialize(api);
+        pdani_global_initialize(api);
 
 
 
