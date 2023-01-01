@@ -1,0 +1,4 @@
+*/CMakeLists.txt
+*/Rakefile
+!common/CMakeLists.txt
+!common/Rakefile
