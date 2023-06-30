@@ -201,9 +201,9 @@ void pdani_player_update(struct pdani_player *player, int ms, pdani_frame_layer_
 void pdani_player_draw(const struct pdani_player *player, LCDBitmap *target, int x, int y);
 
 // sprite
-void pdani_sprite_initialize(struct pdani_sprite *sprite, void *data, LCDBitmap *bitmap);
-void pdani_sprite_finalize(struct pdani_sprite *sprite);
-static inline LCDSprite* pdani_sprite_get_sprite(struct pdani_sprite *sprite) { return sprite->sprite; }
+void pdani_sprite_initialize(struct pdani_sprite *anisprite, void *data, LCDBitmap *bitmap, LCDSprite *sprite);
+void pdani_sprite_finalize(struct pdani_sprite *anisprite);
+static inline LCDSprite* pdani_sprite_get_sprite(struct pdani_sprite *anisprite) { return anisprite->sprite; }
 
 
 

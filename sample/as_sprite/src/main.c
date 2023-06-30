@@ -85,7 +85,7 @@ int eventHandler(PlaydateAPI *playdate, PDSystemEvent event, __attribute__ ((unu
             char *buf = common_loadfile("ani/miata.ani");
             LCDBitmap *bmp = common_loadbitmap("ani/miata.png");
 
-            pdani_sprite_initialize(&anisprite, buf, bmp);
+            pdani_sprite_initialize(&anisprite, buf, bmp, NULL);
             LCDSprite *s = pdani_sprite_get_sprite(&anisprite);
             api->sprite->addSprite(s);
             api->sprite->moveTo(s, -160, -160);

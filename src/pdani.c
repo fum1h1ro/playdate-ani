@@ -867,14 +867,22 @@ static void sprite_draw_function(LCDSprite *sprite, PDRect bounds, PDRect drawre
     pdani_player_draw(&anisprite->player, NULL, (int)x - anisprite->origin_x, (int)y - anisprite->origin_y);
 }
 
-void pdani_sprite_initialize(struct pdani_sprite *anisprite, void *data, LCDBitmap *bitmap)
+void pdani_sprite_initialize(struct pdani_sprite *anisprite, void *data, LCDBitmap *bitmap, LCDSprite *sprite)
 {
     ASSERT(s_api != NULL);
     memset(anisprite, 0, sizeof(struct pdani_sprite));
 
     pdani_file_initialize(&anisprite->file, data, bitmap);
     pdani_player_initialize(&anisprite->player, &anisprite->file);
-    anisprite->sprite = s_api->sprite->newSprite();
+
+    if (sprite == NULL)
+    {
+        anisprite->sprite = s_api->sprite->newSprite();
+    }
+    else
+    {
+        anisprite->sprite = sprite;
+    }
     int w = pdani_file_get_width(&anisprite->file);
     int h = pdani_file_get_height(&anisprite->file);
     anisprite->origin_x = w >> 1;
